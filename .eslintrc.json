@@ -1,0 +1,47 @@
+{
+  "root": true,
+  "parser": "@typescript-eslint/parser",
+  "parserOptions": {
+    "ecmaVersion": 2022,
+    "sourceType": "module",
+    "project": "./tsconfig.json"
+  },
+  "plugins": ["@typescript-eslint"],
+  "extends": ["eslint:recommended", "plugin:@typescript-eslint/recommended", "prettier"],
+  "env": {
+    "node": true,
+    "jest": true
+  },
+  "rules": {
+    "@typescript-eslint/no-unused-vars": ["error", { "argsIgnorePattern": "^_" }],
+    "@typescript-eslint/explicit-function-return-type": "off",
+    "@typescript-eslint/no-explicit-any": "error"
+  },
+  "overrides": [
+    {
+      "files": ["src/domain/**/*.ts", "src/application/**/*.ts"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "group": ["aws-sdk", "@aws-sdk/*"],
+                "message": "src/domain and src/application must stay cloud-agnostic — see constitution Principle I. Cloud SDK usage belongs in src/adapters/aws."
+              },
+              {
+                "group": ["@azure/*"],
+                "message": "src/domain and src/application must stay cloud-agnostic — see constitution Principle I. Cloud SDK usage belongs in src/adapters/azure."
+              },
+              {
+                "group": ["@google-cloud/*"],
+                "message": "src/domain and src/application must stay cloud-agnostic — see constitution Principle I. Cloud SDK usage belongs in src/adapters/gcp."
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "ignorePatterns": ["dist", "node_modules", "infra", "coverage"]
+}

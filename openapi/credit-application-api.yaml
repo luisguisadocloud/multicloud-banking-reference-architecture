@@ -1,0 +1,275 @@
+openapi: 3.0.3
+info:
+  title: Digital Credit Application API
+  description: >
+    Cloud-agnostic API contract for the Digital Credit Application Processing Platform (fictitious
+    banking lab). This contract is implemented natively and independently by the AWS, Azure and
+    GCP variants of this reference architecture — no cloud-specific extensions belong here.
+    See docs/01-business-case.md for the full business case and docs/00-vision-and-scope.md for
+    scope boundaries. All data is synthetic; this is not a real banking system.
+  version: "0.1.0"
+externalDocs:
+  description: Business case and domain documentation
+  url: ../docs/01-business-case.md
+
+paths:
+  /applications:
+    post:
+      operationId: createApplication
+      summary: Create a credit application
+      description: >
+        Creates a new credit application in DRAFT status. Idempotent per Idempotency-Key: repeating
+        the same request with the same key returns the same application instead of creating a
+        second one (FR-005).
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - $ref: "#/components/parameters/CorrelationId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateApplicationRequest"
+      responses:
+        "201":
+          description: Application created (or the existing one, if Idempotency-Key was reused).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreditApplication"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+
+  /applications/{applicationId}/documents:
+    post:
+      operationId: authorizeDocumentUpload
+      summary: Request authorization to upload a supporting document
+      description: >
+        Returns a time-limited URL (presigned/SAS/signed URL depending on the cloud implementation)
+        a client uses to perform a direct upload to object storage, plus the DocumentReference now
+        attached to the application. Only the authorization step is modeled here, not upload
+        confirmation.
+      parameters:
+        - $ref: "#/components/parameters/ApplicationIdPath"
+        - $ref: "#/components/parameters/CorrelationId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AuthorizeDocumentUploadRequest"
+      responses:
+        "201":
+          description: Upload authorization created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DocumentUploadAuthorization"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /applications/{applicationId}/submit:
+    post:
+      operationId: submitApplication
+      summary: Submit a DRAFT application for evaluation
+      description: >
+        Transitions a DRAFT application to SUBMITTED/EVALUATING and enqueues asynchronous
+        evaluation work. Idempotent: resubmitting an already-submitted application is a no-op and
+        MUST NOT enqueue a second effective evaluation (FR-006).
+      parameters:
+        - $ref: "#/components/parameters/ApplicationIdPath"
+        - $ref: "#/components/parameters/CorrelationId"
+      responses:
+        "200":
+          description: Application submitted (or already was — idempotent no-op).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreditApplication"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /applications/{applicationId}:
+    get:
+      operationId: getApplication
+      summary: Get an application's current status and, if available, its decision
+      parameters:
+        - $ref: "#/components/parameters/ApplicationIdPath"
+      responses:
+        "200":
+          description: Current application state.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreditApplication"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+components:
+  parameters:
+    ApplicationIdPath:
+      name: applicationId
+      in: path
+      required: true
+      schema:
+        type: string
+      description: The application identifier returned by POST /applications.
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema:
+        type: string
+      description: Client-generated key ensuring a repeated create request is not applied twice.
+    CorrelationId:
+      name: X-Correlation-Id
+      in: header
+      required: false
+      schema:
+        type: string
+      description: >
+        Optional client-supplied correlation id, propagated end-to-end (create → submit →
+        evaluate → domain event). If omitted, the system generates one.
+
+  schemas:
+    ApplicationStatus:
+      type: string
+      enum:
+        - DRAFT
+        - SUBMITTED
+        - EVALUATING
+        - APPROVED
+        - REJECTED
+        - MANUAL_REVIEW
+
+    CreateApplicationRequest:
+      type: object
+      required:
+        - customerReference
+        - requestedAmount
+      properties:
+        customerReference:
+          type: string
+          description: Synthetic customer identifier, e.g. "CUSTOMER-001". Never real PII.
+          example: "CUSTOMER-001"
+        requestedAmount:
+          type: number
+          exclusiveMinimum: 0
+          description: Fictitious requested credit amount; drives the deterministic decision engine.
+          example: 5000
+
+    AuthorizeDocumentUploadRequest:
+      type: object
+      required:
+        - type
+      properties:
+        type:
+          type: string
+          description: Free-form document type label, e.g. "income-proof", "identity-document".
+          example: "income-proof"
+
+    DocumentReference:
+      type: object
+      required:
+        - documentId
+        - applicationId
+        - type
+        - objectKey
+      properties:
+        documentId:
+          type: string
+        applicationId:
+          type: string
+        type:
+          type: string
+        objectKey:
+          type: string
+          description: Opaque reference a real object-storage adapter will resolve in M1/M2/M3.
+        uploadedAt:
+          type: string
+          format: date-time
+          nullable: true
+
+    DocumentUploadAuthorization:
+      allOf:
+        - $ref: "#/components/schemas/DocumentReference"
+        - type: object
+          required:
+            - uploadUrl
+          properties:
+            uploadUrl:
+              type: string
+              format: uri
+              description: >
+                Time-limited URL the client uses to upload the document directly to object
+                storage (S3 presigned URL / Blob SAS / GCS signed URL depending on the cloud).
+                Not persisted as part of the application state.
+
+    CreditApplication:
+      type: object
+      required:
+        - applicationId
+        - customerReference
+        - requestedAmount
+        - status
+        - createdAt
+        - updatedAt
+      properties:
+        applicationId:
+          type: string
+        customerReference:
+          type: string
+        requestedAmount:
+          type: number
+        status:
+          $ref: "#/components/schemas/ApplicationStatus"
+        documentReferences:
+          type: array
+          items:
+            $ref: "#/components/schemas/DocumentReference"
+        riskScore:
+          type: number
+          nullable: true
+          description: Fictitious. Never a real credit risk model output.
+        decision:
+          type: string
+          enum: [APPROVED, REJECTED, MANUAL_REVIEW]
+          nullable: true
+        correlationId:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    ErrorResponse:
+      type: object
+      required:
+        - errorType
+        - message
+      properties:
+        errorType:
+          type: string
+          example: "VALIDATION_ERROR"
+        message:
+          type: string
+        correlationId:
+          type: string
+
+  responses:
+    BadRequest:
+      description: Invalid request — no state was mutated.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    NotFound:
+      description: Application (or referenced resource) does not exist.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"

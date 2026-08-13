@@ -1,0 +1,32 @@
+# Node / npm
+node_modules/
+dist/
+dist-lambda/
+coverage/
+*.tsbuildinfo
+npm-debug.log*
+
+# Terraform
+*.tfstate
+*.tfstate.*
+*.tfplan
+.terraform/
+crash.log
+crash.*.log
+# .terraform.lock.hcl is intentionally NOT ignored — HashiCorp recommends committing it for
+# reproducible provider version resolution across machines/sessions.
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+
+# Agent folder security (may store credentials/auth tokens)
+.claude/settings.local.json
+
+# OS
+.DS_Store
+
+# Editors
+.vscode/
+.idea/
